@@ -62,6 +62,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ── Bridge LANGSMITH_PROJECT → LANGCHAIN_PROJECT ──────────────────────────────
+# The LangSmith SDK routes traces and evaluation experiments to the project
+# named in LANGCHAIN_PROJECT.  LANGSMITH_PROJECT is the user-facing env var
+# name we expose in .env.example; we sync it here so both names work.
+_project = os.getenv("LANGSMITH_PROJECT")
+if _project and not os.getenv("LANGCHAIN_PROJECT"):
+    os.environ["LANGCHAIN_PROJECT"] = _project
+
 # ── Validate environment before importing LangSmith SDK ───────────────────────
 _api_key = os.getenv("LANGSMITH_API_KEY")
 if not _api_key:
@@ -363,7 +371,45 @@ def _ensure_dataset(client: Client) -> str:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+def _save_dataset_locally() -> None:
+    """Write DATASET_EXAMPLES to eval/data/expense_eval_dataset.json.
+
+    This gives every reader a local, inspectable copy of the ground-truth data.
+    The file is committed to the repo so you can diff it when examples change.
+    LangSmith holds the authoritative copy for evaluation runs; this JSON is
+    the human-readable source of truth that lives alongside the code.
+    """
+    import json
+    import pathlib
+
+    data_dir = pathlib.Path(__file__).parent / "data"
+    data_dir.mkdir(exist_ok=True)
+    out = data_dir / "expense_eval_dataset.json"
+    out.write_text(
+        json.dumps(
+            {
+                "dataset_name": DATASET_NAME,
+                "description": (
+                    "Ground-truth examples for the expense report classification agent. "
+                    "Tests risk_flag assignment, requires_approval routing, and "
+                    "final_status for auto-cleared expenses."
+                ),
+                "examples": DATASET_EXAMPLES,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    print(f"[eval] Dataset saved locally → {out.relative_to(pathlib.Path.cwd())}")
+
+
 def main() -> None:
+    # Write the dataset to disk first so readers can inspect it locally
+    _save_dataset_locally()
+
+    active_project = os.getenv("LANGCHAIN_PROJECT") or os.getenv("LANGSMITH_PROJECT", "default")
+    print(f"[eval] LangSmith project: {active_project!r}")
+
     client = Client()
     dataset_name = _ensure_dataset(client)
 
@@ -381,22 +427,22 @@ def main() -> None:
         experiment_prefix="expense-agent-classification",
         metadata={
             "description": "Classification accuracy eval for expense agent",
+            "project": active_project,
             "version": "v1",
         },
     )
 
-    # Summarise aggregate scores
+    # Summarise aggregate scores — avoid to_pandas() which requires the optional
+    # pandas dependency.  aggregate_metrics is always populated by evaluate().
     print("\n[eval] Results:")
-    metrics = results.to_pandas() if hasattr(results, "to_pandas") else {}
     if hasattr(results, "aggregate_metrics") and results.aggregate_metrics:
         for key, val in results.aggregate_metrics.items():
             if val is not None:
                 print(f"  {key}: {val:.1%}")
     else:
-        print("  (Open LangSmith → your project → Experiments to see results)")
+        print("  (Open LangSmith → Datasets → expense-classification-eval-v1 → Experiments)")
 
-    print(f"\n[eval] Experiment logged to LangSmith project: {os.getenv('LANGSMITH_PROJECT', 'default')!r}")
-    print("[eval] Done.")
+    print(f"\n[eval] Done. Experiment logged under project: {active_project!r}")
 
 
 if __name__ == "__main__":

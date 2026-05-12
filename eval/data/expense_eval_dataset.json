@@ -1,0 +1,140 @@
+{
+  "dataset_name": "expense-classification-eval-v1",
+  "description": "Ground-truth examples for the expense report classification agent. Tests risk_flag assignment, requires_approval routing, and final_status for auto-cleared expenses.",
+  "examples": [
+    {
+      "inputs": {
+        "expense_id": "EVAL-001",
+        "vendor": "Corner Caf\u00e9",
+        "category": "meals",
+        "amount": 35.0,
+        "submitted_by": "alice@co.com"
+      },
+      "outputs": {
+        "risk_flag": null,
+        "requires_approval": false,
+        "final_status": "cleared"
+      }
+    },
+    {
+      "inputs": {
+        "expense_id": "EVAL-002",
+        "vendor": "Dell Technologies",
+        "category": "equipment",
+        "amount": 1800.0,
+        "submitted_by": "bob@co.com"
+      },
+      "outputs": {
+        "risk_flag": null,
+        "requires_approval": false,
+        "final_status": "cleared"
+      }
+    },
+    {
+      "inputs": {
+        "expense_id": "EVAL-003",
+        "vendor": "City Parking",
+        "category": "parking",
+        "amount": 22.0,
+        "submitted_by": "carol@co.com"
+      },
+      "outputs": {
+        "risk_flag": null,
+        "requires_approval": false,
+        "final_status": "cleared"
+      }
+    },
+    {
+      "inputs": {
+        "expense_id": "EVAL-004",
+        "vendor": "Grand Hyatt",
+        "category": "lodging",
+        "amount": 3500.0,
+        "submitted_by": "david@co.com"
+      },
+      "outputs": {
+        "risk_flag": "HIGH_AMOUNT",
+        "requires_approval": true
+      }
+    },
+    {
+      "inputs": {
+        "expense_id": "EVAL-005",
+        "vendor": "United Airlines",
+        "category": "travel",
+        "amount": 2100.0,
+        "submitted_by": "eve@co.com"
+      },
+      "outputs": {
+        "risk_flag": "HIGH_AMOUNT",
+        "requires_approval": true
+      }
+    },
+    {
+      "inputs": {
+        "expense_id": "EVAL-006",
+        "vendor": "Le Bernardin",
+        "category": "meals",
+        "amount": 750.0,
+        "submitted_by": "frank@co.com"
+      },
+      "outputs": {
+        "risk_flag": "HIGH_AMOUNT",
+        "requires_approval": true
+      }
+    },
+    {
+      "inputs": {
+        "expense_id": "EVAL-007",
+        "vendor": "Casino Royale",
+        "category": "meals",
+        "amount": 60.0,
+        "submitted_by": "grace@co.com"
+      },
+      "outputs": {
+        "risk_flag": "FLAGGED_VENDOR",
+        "requires_approval": true
+      }
+    },
+    {
+      "inputs": {
+        "expense_id": "EVAL-008",
+        "vendor": "Ultra Luxury Resort",
+        "category": "lodging",
+        "amount": 500.0,
+        "submitted_by": "hank@co.com"
+      },
+      "outputs": {
+        "risk_flag": "FLAGGED_VENDOR",
+        "requires_approval": true
+      }
+    },
+    {
+      "inputs": {
+        "expense_id": "EVAL-009",
+        "vendor": "Business Hotel",
+        "category": "lodging",
+        "amount": 500.0,
+        "submitted_by": "iris@co.com"
+      },
+      "outputs": {
+        "risk_flag": "HIGH_AMOUNT",
+        "requires_approval": true
+      }
+    },
+    {
+      "inputs": {
+        "expense_id": "EVAL-010",
+        "vendor": "Business Hotel",
+        "category": "lodging",
+        "amount": 499.99,
+        "submitted_by": "jack@co.com"
+      },
+      "outputs": {
+        "risk_flag": null,
+        "requires_approval": false,
+        "final_status": "cleared"
+      }
+    }
+  ]
+}
