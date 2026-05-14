@@ -127,34 +127,36 @@ The three-layer test suite is designed to make each failure mode visible at the 
 ## The Three Test Layers
 
 ```mermaid
-flowchart TB
-    subgraph L1["Layer 1 — Unit (test_unit.py)"]
-        U1[Import classify_expense directly]
-        U2[Call with hand-crafted state dict]
-        U3[Assert on returned dict]
+flowchart LR
+    subgraph L1["Layer 1 — Unit tests"]
+        direction TB
+        U1[Test one rule at a time]
+        U2[Give it a sample input]
+        U3[Check the returned result]
         U1 --> U2 --> U3
     end
 
-    subgraph L2["Layer 2 — Integration (test_integration.py)"]
-        I1[build_graph with MemorySaver]
-        I2[graph.invoke full state]
-        I3[Assert routing, final state,\nthread isolation]
+    subgraph L2["Layer 2 — Integration tests"]
+        direction TB
+        I1[Run the full workflow]
+        I2[Start with a complete record]
+        I3[Check routing, final output,\nand separate runs]
         I1 --> I2 --> I3
     end
 
-    subgraph L3["Layer 3 — HITL (test_hitl.py)"]
-        H1["Step 1: graph.invoke(initial_state)"]
-        H2["Assert __interrupt__ in result\nAssert graph.get_state().next == approval_gate"]
-        H3["Step 2: graph.invoke(Command(resume=...))"]
-        H4["Assert final_status, audit_trail,\nall fields from both steps"]
+    subgraph L3["Layer 3 — Human review tests"]
+        direction TB
+        H1[Run until the workflow pauses]
+        H2[Check that review is required]
+        H3[Resume with a human decision]
+        H4[Check the final result and saved state]
         H1 --> H2 --> H3 --> H4
     end
 
-    L1 -->|"Passes → confirms function logic\nStill blind to graph structure"| L2
-    L2 -->|"Passes → confirms routing + state propagation\nStill blind to interrupt/resume"| L3
-    L3 -->|"Passes → full production proof"| DONE([Ship with confidence])
+    L1 -->|"Passes → rule logic works\nBut not the full path"| L2
+    L2 -->|"Passes → workflow routing works\nBut not pause and resume"| L3
+    L3 -->|"Passes → review handoff works end to end"| DONE([Ready for production])
 ```
-
 ---
 
 ### Layer 1 — Unit Tests (`tests/test_unit.py`)
@@ -218,23 +220,23 @@ Whether the graph resumes on the correct branch after a human decision, or wheth
 sequenceDiagram
     participant Test
     participant Graph
-    participant Checkpointer
+    participant SavedState as Saved State
 
     Test->>Graph: invoke(flagged_expense, config)
-    Graph->>Graph: classify_expense → risk_flag=HIGH_AMOUNT
-    Graph->>Checkpointer: checkpoint state
-    Graph->>Graph: approval_gate → interrupt() fires ⏸
-    Graph-->>Test: result with __interrupt__
+    Graph->>Graph: classify expense as high risk
+    Graph->>SavedState: save state
+    Graph->>Graph: pause at approval step
+    Graph-->>Test: returns __interrupt__
 
-    Note over Test: Assert interrupt fired<br/>Assert get_state().next == approval_gate<br/>Assert checkpointed fields are correct
+    Note over Test: Assert pause happened<br/>Assert next step is approval_gate<br/>Assert saved fields are correct
 
     Test->>Graph: invoke(Command(resume={decision, notes}), config)
-    Graph->>Checkpointer: restore state
-    Graph->>Graph: approval_gate resumes with human decision
-    Graph->>Graph: finalize_expense → writes final_status + audit_trail
-    Graph-->>Test: complete final state
+    Graph->>SavedState: load saved state
+    Graph->>Graph: resume with reviewer decision
+    Graph->>Graph: finalize expense and write audit trail
+    Graph-->>Test: returns final state
 
-    Note over Test: Assert final_status = approved/rejected<br/>Assert fields from Step 1 still present<br/>Assert reviewer_notes in audit_trail
+    Note over Test: Assert final status is correct<br/>Assert earlier fields are still present<br/>Assert reviewer notes were saved
 ```
 
 **The revelation test:**
