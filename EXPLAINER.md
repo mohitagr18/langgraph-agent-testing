@@ -9,10 +9,37 @@ This project answers one question: **how do you properly test an AI agent that m
 
 The agent processes employee expense reports. It reads a submitted expense, decides whether it needs a human to review it, pauses execution if it does, waits for a reviewer's decision, and then writes a final status. The domain was chosen deliberately — every reader has filed or approved an expense report, the failure mode is visceral (a $3,500 hotel charge approved with no human ever seeing it), and the approval logic is deterministic enough to test precisely.
 
-The project is the companion code for a Medium article titled:  
+The project is the companion code for a Medium article titled:
 > **"You Shipped an AI Agent to Production Without Testing It. So Did I."**
 
 The confession at the heart of the article: the author tested the individual Python functions, they all passed, and the agent went to production. Then a flagged expense auto-approved itself — because the *graph's structure*, its routing logic, and its human-in-the-loop pause mechanism were never tested as a graph.
+
+---
+
+## Project Structure
+
+```
+langgraph-agent-testing/
+├── src/
+│   ├── state.py              # ExpenseState TypedDict — shared contract, no project imports
+│   ├── nodes.py              # Pure node functions — import state.py only, never graph.py
+│   └── graph.py              # Compiled graph — the only file that knows the graph exists
+├── tests/
+│   ├── test_unit.py          # Layer 1: node functions in isolation, no graph machinery
+│   ├── test_integration.py   # Layer 2: full graph, thread isolation, routing
+│   └── test_hitl.py          # Layer 3: interrupt/resume cycle, two-step pattern
+├── eval/
+│   ├── data/
+│   │   └── expense_eval_dataset.json  # Ground-truth examples (local copy)
+│   └── langsmith_eval.py     # LangSmith evaluation against named dataset
+├── pyproject.toml            # Single source of truth for all dependencies (uv)
+├── langgraph.json            # LangGraph Platform deployment config
+└── .env.example              # Environment variable template
+```
+
+**One-way dependency rule:**
+`state.py ← nodes.py ← graph.py`
+Nodes never import from `graph.py`. This is what makes unit testing possible — see [Architectural Rule](#architectural-rule-one-way-dependency) below.
 
 ---
 
@@ -82,8 +109,8 @@ flowchart TD
     F --> H([Route straight to finalize])
 ```
 
-**Exempt categories** (threshold does not apply): `equipment`, `software`  
-**Flagged vendors** (always requires review, any amount): `casino royale`, `ultra luxury resort`, `first class airways`, `platinum club`  
+**Exempt categories** (threshold does not apply): `equipment`, `software`
+**Flagged vendors** (always requires review, any amount): `casino royale`, `ultra luxury resort`, `first class airways`, `platinum club`
 **High-amount threshold**: `$500.00` (inclusive)
 
 ### Evaluation dataset: `eval/data/expense_eval_dataset.json`
@@ -95,12 +122,12 @@ flowchart TD
 | EVAL-001 | Corner Café | meals | $35 | `None` | `cleared` |
 | EVAL-002 | Dell Technologies | equipment | $1,800 | `None` | `cleared` |
 | EVAL-003 | City Parking | parking | $22 | `None` | `cleared` |
-| EVAL-004 | Grand Hyatt | lodging | $3,500 | `HIGH_AMOUNT` | *(paused)* |
-| EVAL-005 | United Airlines | travel | $2,100 | `HIGH_AMOUNT` | *(paused)* |
-| EVAL-006 | Le Bernardin | meals | $750 | `HIGH_AMOUNT` | *(paused)* |
-| EVAL-007 | Casino Royale | meals | $60 | `FLAGGED_VENDOR` | *(paused)* |
-| EVAL-008 | Ultra Luxury Resort | lodging | $500 | `FLAGGED_VENDOR` | *(paused)* |
-| EVAL-009 | Business Hotel | lodging | $500 | `HIGH_AMOUNT` | *(paused)* |
+| EVAL-004 | Grand Hyatt | lodging | $3,500 | `HIGH_AMOUNT` | *(paused for review)* |
+| EVAL-005 | United Airlines | travel | $2,100 | `HIGH_AMOUNT` | *(paused for review)* |
+| EVAL-006 | Le Bernardin | meals | $750 | `HIGH_AMOUNT` | *(paused for review)* |
+| EVAL-007 | Casino Royale | meals | $60 | `FLAGGED_VENDOR` | *(paused for review)* |
+| EVAL-008 | Ultra Luxury Resort | lodging | $500 | `FLAGGED_VENDOR` | *(paused for review)* |
+| EVAL-009 | Business Hotel | lodging | $500.00 | `HIGH_AMOUNT` | *(paused for review)* |
 | EVAL-010 | Business Hotel | lodging | $499.99 | `None` | `cleared` |
 
 EVAL-009 and EVAL-010 are the boundary pair — $500.00 triggers the flag, $499.99 does not.
@@ -109,7 +136,7 @@ EVAL-009 and EVAL-010 are the boundary pair — $500.00 triggers the flag, $499.
 
 ## The Hypothesis
 
-> **Testing individual node functions is necessary but not sufficient.  
+> **Testing individual node functions is necessary but not sufficient.
 > A graph can be broken in ways that make every individual function test pass.**
 
 Specifically, three things can go wrong in a LangGraph agent that unit tests are structurally blind to:
@@ -157,6 +184,7 @@ flowchart LR
     L2 -->|"Passes → workflow routing works\nBut not pause and resume"| L3
     L3 -->|"Passes → review handoff works end to end"| DONE([Ready for production])
 ```
+
 ---
 
 ### Layer 1 — Unit Tests (`tests/test_unit.py`)
@@ -178,9 +206,9 @@ def test_large_hotel_charge_flagged():
 **What it proves:**
 - Each classification rule fires on the correct inputs
 - Edge cases (exact threshold, exempt categories, flagged vendor case-insensitivity) are handled correctly
-- The fail-safe: if `approval_decision` is missing on a flagged expense, `finalize_expense` must default to `"rejected"` — never auto-approve
+- The fail-safe: if `approval_decision` is missing on a flagged expense, `finalize_expense` defaults to `"rejected"` — never auto-approve
 
-**What it cannot prove:**  
+**What it cannot prove:**
 Whether the conditional edge in `graph.py` routes a flagged expense to `approval_gate` vs. straight to `finalize`. That is a graph-structure concern invisible to function tests.
 
 **Run time:** < 0.1s — no external calls, fully deterministic.
@@ -203,7 +231,7 @@ UUID-based thread IDs prevent state bleed between tests even in the same process
 - State written by `classify_expense` is visible to `finalize_expense` — state propagation through the graph's merge logic works
 - Thread A's state is never visible when querying Thread B's checkpoint (`get_state`)
 
-**What it cannot prove:**  
+**What it cannot prove:**
 Whether the graph resumes on the correct branch after a human decision, or whether state survives the pause. That requires a two-step invoke.
 
 **Run time:** < 0.1s — MemorySaver, no LLM calls.
@@ -329,3 +357,5 @@ uv run pytest tests/ -v
 ```
 
 No OpenAI key required. No network. No LLM calls. Everything deterministic.
+
+---
